@@ -1,0 +1,38 @@
+<h2>User registration</h2>
+<form ng-submit="$ctrl.submitOwnerForm()" style="max-width: 25em;">
+    <div class="form-group">
+        <label>First name</label>
+        <input class="form-control" ng-model="$ctrl.owner.firstName" name="firstName" required/>
+        <span ng-show="ownerForm.firstName.$error.required" class="help-block">First name is required.</span>
+    </div>
+
+    <div class="form-group">
+        <label>Last name</label>
+        <input class="form-control" ng-model="$ctrl.owner.lastName" name="lastName" required/>
+        <span ng-show="ownerForm.lastName.$error.required" class="help-block">Last name is required.</span>
+    </div>
+
+
+    <div class="form-group">
+        <label>Bio</label>
+        <input class="form-control" ng-model="$ctrl.owner.address" name="address" required/>
+        <span ng-show="ownerForm.address.$error.required" class="help-block">Bio is required.</span>
+    </div>
+
+    <div class="form-group">
+        <label>Nick Name</label>
+        <input class="form-control" ng-model="$ctrl.owner.city" name="city" required/>
+        <span ng-show="ownerForm.city.$error.required" class="help-block">Nick Name is required.</span>
+    </div>
+    
+    <div class="form-group">
+        <label>Telephone</label>
+        <input class="form-control" ng-model="$ctrl.owner.telephone" name="telephone" required/>
+        <span ng-show="ownerForm.telephone.$error.required" class="help-block">Telephone is required.</span>
+    </div>
+    
+    <div class="form-group">
+        <button class="btn btn-default" type="submit">Submit</button>
+    </div>
+</form>
+

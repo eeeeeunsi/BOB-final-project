@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-blue
+spec:
+  selector:
+    matchLabels:
+      app: web
+      version: blue
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        app: web
+        version: blue
+    spec:
+      containers:
+        - name: web
+          image: CONTAINER_IMAGE_BLUE
+          #image: 560971842042.dkr.ecr.ap-northeast-2.amazonaws.com/web-app:latest
+          envFrom:
+            - configMapRef:
+                name: petclinic-config

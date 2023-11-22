@@ -1,0 +1,70 @@
+<h2 style="text-align: center;">User Information</h2>
+
+<table class="table table-striped">
+    <tr>
+        <th class="col-sm-3">Name</th>
+        <td><b>{{$ctrl.owner.firstName}} {{$ctrl.owner.lastName}}</b></td>
+    </tr>
+    <tr>
+        <th>Bio</th>
+        <td>{{$ctrl.owner.address}}</td>
+    </tr>
+    <tr>
+        <th>Nick Name</th>
+        <td>{{$ctrl.owner.city}}</td>
+    </tr>
+    <tr>
+        <th>Telephone</th>
+        <td>{{$ctrl.owner.telephone}}</td>
+    </tr>
+    <tr>
+        <td>
+            <a class="btn btn-default" ui-sref="ownerEdit({ownerId: $ctrl.owner.id})">Edit User</a>
+        </td>
+        <td>
+            <a ui-sref="petNew({ownerId: $ctrl.owner.id})" class="btn btn-default">Add New Book</a>
+        </td>
+    </tr>
+</table>
+
+<h2 style="text-align: center;">List of Book Reads</h2>
+
+<table class="table table-striped">
+    <tr ng-repeat="pet in $ctrl.owner.pets track by pet.id">
+        <td valign="top">
+            <dl class="dl-horizontal">
+                <dt>Title</dt>
+                <dd><a ui-sref="petEdit({ownerId: $ctrl.owner.id, petId: pet.id})">{{pet.name}}</a></dd>
+                <dt>Reading Date</dt>
+                <dd>{{pet.birthDate | date:'yyyy MMM dd'}}</dd>
+                <dt>Category</dt>
+                <dd>{{pet.type.name}}</dd>
+            </dl>
+        </td>
+        <td valign="top">
+            <table class="table-condensed">
+                <thead>
+                <tr>
+                    <th>Visit Date</th>
+                    <th>Additional Comments</th>
+                </tr>
+                </thead>
+                <tr ng-repeat="visit in pet.visits track by visit.id">
+                    <td>{{visit.date | date:'yyyy MMM dd'}}</td>
+                    <td>{{visit.description}}</td>
+                </tr>
+                <tr>
+                    <td>
+                        <a ui-sref="petEdit({ownerId: $ctrl.owner.id, petId: pet.id})">Edit Book</a>
+                    </td>
+                    <td>
+                        <a ui-sref="visits({ownerId: $ctrl.owner.id, petId: pet.id})">Add Comment</a>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+</table>
+
+
+

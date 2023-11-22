@@ -1,0 +1,114 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      java: corretto11
+    commands:
+      - echo Installing Maven
+      - yum update -y
+      - yum install -y maven
+      - yum install -y jq
+      - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && chmod +x kubectl
+      - export PATH=$PATH:$(pwd)
+
+  pre_build:
+    commands:
+      - echo "Change Build Directory"
+      - cd $IMAGE_REPO_NAME
+      
+      # image tag 생성
+      - TAG="$(date +%Y-%m-%d.%H.%M.%S).$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | head -c 8)"
+    
+      # ECR에 Login 
+      - echo "Logging in to Amazon ECR"
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+      
+      # kube config 확인
+      - export KUBECONFIG=$HOME/.kube/config
+  
+  build:
+    commands:
+      # maven 빌드
+      - echo "Build started on `date`"
+      - mvn -pl . -am clean package -Dmaven.test.skip=true
+      
+      # docker image 빌드
+      - echo "Building the Docker image for $IMAGE_REPO_NAME"
+      - docker build -t $IMAGE_REPO_NAME:$TAG -f Dockerfile .
+      - docker tag $IMAGE_REPO_NAME:$TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$TAG
+
+  post_build:
+    commands:
+      # Docker image를 ECR에 push
+      - echo "Pushing the Docker image"
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$TAG
+      - echo "Writing image definitions file for $IMAGE_REPO_NAME"
+      
+      # Docker imgae를 DR 리전의 ECR에 push
+      - echo "DR region ECR login & Push image"
+      - aws ecr get-login-password --region $AWS_DR_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DR_REGION.amazonaws.com
+      - docker tag $IMAGE_REPO_NAME:$TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DR_REGION.amazonaws.com/$IMAGE_REPO_NAME:$TAG
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DR_REGION.amazonaws.com/$IMAGE_REPO_NAME:$TAG
+
+      # kubeconfig에 cluster 정보 update              
+      - echo "Update Kube Config configuration"      
+      - aws eks update-kubeconfig --region $AWS_DEFAULT_REGION --name $EKS_CLUSTERNAME
+      
+      # kubectl을 사용할 수 있도록 aws credential 준비 
+      - echo "Setting Environment Variables related to AWS CLI for Kube Config Setup"          
+      - CREDENTIALS=$(aws sts assume-role --role-arn $EKS_ROLE_ARN --role-session-name eks-codebuild --duration-seconds 900)
+      - export AWS_ACCESS_KEY_ID="$(echo ${CREDENTIALS} | jq -r '.Credentials.AccessKeyId')"
+      - export AWS_SECRET_ACCESS_KEY="$(echo ${CREDENTIALS} | jq -r '.Credentials.SecretAccessKey')"
+      - export AWS_SESSION_TOKEN="$(echo ${CREDENTIALS} | jq -r '.Credentials.SessionToken')"
+      - export AWS_EXPIRATION=$(echo ${CREDENTIALS} | jq -r '.Credentials.Expiration')
+      
+      # 기존 배포 버전 확인
+      - export CURRENT_LIVE_VERSION=$(kubectl get service visits -o=jsonpath='{.spec.selector.version}' -n app)
+      - echo "Current version is $CURRENT_LIVE_VERSION"
+
+      # 새로운 버전 결정 (현재 라이브 버전이 blue면 green을, green이면 blue를 사용)
+      - export NEW_VERSION=$(if [ "$CURRENT_LIVE_VERSION" = "blue" ]; then echo "green"; else echo "blue"; fi)
+      - echo "New version is $NEW_VERSION"
+
+      # 새로운 이미지로 deployment 파일 update
+      - export CONTAINER_IMAGE_NEW="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$TAG"
+      - echo "Deploying the $NEW_VERSION"
+      - if [ "$NEW_VERSION" = "blue" ]; then
+          sed -i 's@CONTAINER_IMAGE_BLUE@'"$CONTAINER_IMAGE_NEW"'@' deploy/visits-deployment-blue.yml;
+          kubectl apply -f deploy/visits-deployment-blue.yml -n app;
+        else
+          sed -i 's@CONTAINER_IMAGE_GREEN@'"$CONTAINER_IMAGE_NEW"'@' deploy/visits-deployment-green.yml;
+          kubectl apply -f deploy/visits-deployment-green.yml -n app;
+        fi
+
+      # $NEW_VERSION deployment가 안정화될 때까지 대기
+      - echo "Waiting for the $NEW_VERSION deployment to become stable"
+      - kubectl rollout status deployment/visits-$NEW_VERSION -n app --watch=true
+
+      # $NEW_VERSION deployment의 pod 상태 확인 > 실패시 롤백
+      - echo "Checking if all pods in the $NEW_VERSION deployment are running"
+      - PODS_STATUS=$(kubectl get pods -l version=$NEW_VERSION -n app -o jsonpath="{.items[*].status.phase}")
+      - if echo $PODS_STATUS | grep -qv "Running"; then
+          echo "Not all pods are running. Initiating rollback to version $CURRENT_LIVE_VERSION";
+          kubectl rollout undo deployment/visits-$NEW_VERSION -n app;
+          kubectl patch service visits -n app -p "{\"spec\":{\"selector\":{\"version\":\"$CURRENT_LIVE_VERSION\"}}}";
+        fi
+        
+      # selector를 new version으로 update
+      - echo "Updating the service selector to the $NEW_VERSION"
+      - kubectl patch service visits -n app -p "{\"spec\":{\"selector\":{\"version\":\"$NEW_VERSION\"}}}"
+
+      # $CURRENT_LIVE_VERSION deployment 제거
+      - sleep 30
+      - echo "Cleaning up the old version - $CURRENT_LIVE_VERSION"
+      - kubectl delete deployment visits-$CURRENT_LIVE_VERSION -n app
+
+      # Artifacts 생성
+      - cd ..
+      - printf '[{"name":"visits-service","imageUri":"%s"}]' $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$TAG > imagedefinitions.json
+
+artifacts:
+  files: 
+    - imagedefinitions.json
+    - $IMAGE_REPO_NAME/deploy/visits-deployment-$NEW_VERSION.yml

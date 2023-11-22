@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vets-green
+spec:
+  selector:
+    matchLabels:
+      app: vets
+      version: green
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        app: vets
+        version: green
+    spec:
+      containers:
+        - name: vets
+          image: CONTAINER_IMAGE_GREEN
+          envFrom:
+            - configMapRef:
+                name: petclinic-config
